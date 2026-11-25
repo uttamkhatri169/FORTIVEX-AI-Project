@@ -1,0 +1,69 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aria — AI Sales Voice Agent</title>
+<style>
+:root{--bg:#edf0f5;--ink:#0e1b3d;--mut:#5b6685;--pan:#fff;--acc:#3b5bdb;--pos:#2b8a3e;--neg:#c2410c;--line:#d5dbe8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Avenir Next","Segoe UI",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px;display:grid;grid-template-columns:3fr 2fr;gap:20px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+h1{font-size:1.6rem;margin:0 0 4px}h2{font-size:1rem;margin:0 0 8px}.sub{color:var(--mut);margin:0 0 16px}
+section{background:var(--pan);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+#log{height:340px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+#log p{margin:0;padding:8px 12px;max-width:85%;border-radius:12px}
+.you{background:var(--ink);color:#fff;align-self:flex-end;border-bottom-right-radius:2px}
+.agent{background:#e6ebfb;align-self:flex-start;border-bottom-left-radius:2px}
+.row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+button,select,input{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line)}
+button{background:var(--acc);color:#fff;border:0;cursor:pointer}button.alt{background:var(--ink)}button:disabled{opacity:.5}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+input{flex:1;min-width:120px}
+.bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .4s}
+dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0 0}dt{color:var(--mut)}dd{margin:0}
+.dots span{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:4px;background:var(--mut)}
+.dots .positive{background:var(--pos)}.dots .negative{background:var(--neg)}
+#summary,#ins{white-space:pre-wrap}
+</style></head><body><main>
+<div>
+ <h1>Aria, your AI sales agent</h1><p class="sub">Press Start call, allow the microphone, and talk. Use Chrome or Edge for voice.</p>
+ <section><div id="log" aria-live="polite"></div>
+  <div class="row"><button id="start">Start call</button><button id="end" class="alt" disabled>End call</button>
+   <select id="lang" aria-label="Your language"><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="pa-IN">ਪੰਜਾਬੀ</option></select></div>
+  <div class="row"><input id="txt" placeholder="Or type a message"><button id="sendbtn" class="alt">Send</button></div>
+  <p id="status" class="sub"></p></section>
+</div>
+<div>
+ <section><h2>Lead score: <span id="sc">0</span>/100</h2><div class="bar"><i id="fill"></i></div>
+  <dl id="fields"></dl><h2 style="margin-top:14px">Sentiment by turn</h2><div class="dots" id="dots"></div></section>
+ <section><h2>Call summary</h2><div id="summary">The summary appears after you end the call.</div></section>
+ <section><h2>Business insights</h2><div id="ins">No calls yet.</div></section>
+</div></main>
+<script>
+const $=id=>document.getElementById(id), sid=crypto.randomUUID(), key=localStorage.lk||(localStorage.lk=crypto.randomUUID());
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let live=false, rec, ttsLang='en-IN';
+const add=(w,t)=>{const p=document.createElement('p');p.className=w;p.textContent=t;$('log').append(p);p.scrollIntoView()};
+async function send(t,hidden){
+ if(!hidden)add('you',t); $('status').textContent='Thinking…';
+ try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid,lead_key:key,text:t})});
+  if(!r.ok)throw new Error(await r.text()); const d=await r.json(); add('agent',d.reply); show(d); say(d.reply);
+ }catch(e){$('status').textContent='Error: '+e.message+' (check your API key and server log)'}
+}
+function show(d){const l=d.lead; $('sc').textContent=d.score; $('fill').style.width=d.score+'%'; if(l.language)ttsLang=l.language;
+ $('fields').innerHTML=['name','company','budget','authority','need','timeline','interest'].map(k=>`<dt>${k}</dt><dd>${l[k]??'–'}</dd>`).join('');
+ if(l.sentiment){const s=document.createElement('span');s.className=l.sentiment;s.title=l.sentiment;$('dots').append(s)}}
+function say(t){const u=new SpeechSynthesisUtterance(t);u.lang=ttsLang;
+ const v=speechSynthesis.getVoices().find(v=>v.lang.replace('_','-').startsWith(ttsLang)); if(v)u.voice=v;
+ u.onend=listen; $('status').textContent='Speaking…'; speechSynthesis.speak(u)}
+function listen(){if(!live||!SR)return; rec=new SR(); rec.lang=$('lang').value; let got=false;
+ rec.onresult=e=>{got=true;send(e.results[0][0].transcript)};
+ rec.onerror=e=>{if(e.error==='not-allowed'){live=false;$('status').textContent='Microphone blocked. Allow it and restart the call.'}};
+ rec.onend=()=>{if(live&&!got&&!speechSynthesis.speaking)listen()};
+ rec.start(); $('status').textContent='Listening…'}
+$('start').onclick=()=>{live=true;$('start').disabled=true;$('end').disabled=false;send('(The customer just picked up. Greet them and introduce yourself.)',true)};
+$('sendbtn').onclick=()=>{if($('txt').value.trim()){send($('txt').value);$('txt').value=''}};
+$('txt').onkeydown=e=>{if(e.key==='Enter')$('sendbtn').click()};
+$('end').onclick=async()=>{live=false;speechSynthesis.cancel();rec&&rec.abort();$('end').disabled=true;
+ const d=await (await fetch('/api/end/'+sid,{method:'POST'})).json();
+ $('summary').textContent=`${d.summary}\n\nNext step: ${d.next_step}\nAction items: ${(d.action_items||[]).join('; ')}\nObjections: ${(d.objections||[]).join('; ')||'none'}\nDemo booked: ${d.booked?'yes':'no'}`;
+ const i=await (await fetch('/api/insights')).json();
+ $('ins').textContent=`Calls: ${i.calls}\nAverage lead score: ${i.avg_score}\nBooking rate: ${i.booking_rate}%\nSentiment: ${JSON.stringify(i.sentiment)}`;
+ $('status').textContent='Call ended. Reload the page to start a new call.'};
+</script></body></html>
